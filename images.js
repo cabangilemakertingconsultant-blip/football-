@@ -1,4 +1,3 @@
-
 // CABANGILE FOOTBALL - IMAGE LIBRARY
 
 const CABANGILE_IMAGES = {
@@ -8,7 +7,7 @@ const CABANGILE_IMAGES = {
     home: "home.png",
     matches: "matches.png",
     predictions: "predictions.png",
-    wallet: "wallet.png",
+    wallet: "wallet(1).png",
     profile: "profile.png",
     trophy: "trophy.png",
     news: "news.png",
