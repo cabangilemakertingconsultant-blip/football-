@@ -7,7 +7,7 @@ const CABANGILE_IMAGES = {
     home: "home.png",
     matches: "matches.png",
     predictions: "predictions.png",
-    wallet: "wallet(1).png",
+    wallet: "wallet.png",
     profile: "profile.png",
     trophy: "trophy.png",
     news: "news.png",
