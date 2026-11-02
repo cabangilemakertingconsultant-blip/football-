@@ -1,0 +1,84 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#071426">
+  <meta name="description" content="Cabangile Football - Your football world">
+  <title>Cabangile Football</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header class="topbar">
+  <div class="logo">
+    <img src="images/logo/logo.png" alt="Cabangile Football Logo">
+    <span>CABANGILE</span>
+  </div>
+  <button onclick="showPage('profile')" aria-label="Profile">👤</button>
+</header>
+
+<main>
+
+  <section class="welcome">
+    <p>WELCOME TO</p>
+    <h1>YOUR FOOTBALL WORLD</h1>
+    <p>Football lives here.</p>
+  </section>
+
+  <section class="quick-links">
+    <button onclick="showPage('matches')">
+      <img src="images/icons/matches.png" alt="">
+      Matches
+    </button>
+
+    <button onclick="showPage('predictions')">
+      <img src="images/icons/predictions.png" alt="">
+      Predictions
+    </button>
+
+    <button onclick="showPage('wallet')">
+      <img src="images/icons/wallet.png" alt="">
+      Wallet
+    </button>
+  </section>
+
+  <section class="content" id="page-content">
+    <h2>🏆 Featured Football</h2>
+
+    <div class="football-card">
+      <h3>Today's Matches</h3>
+      <p>Football fixtures and results will appear here.</p>
+    </div>
+  </section>
+
+</main>
+
+<nav class="bottom-nav">
+  <button onclick="showPage('home')">
+    <img src="images/icons/home.png" alt="">
+    <span>Home</span>
+  </button>
+
+  <button onclick="showPage('matches')">
+    <img src="images/icons/matches.png" alt="">
+    <span>Matches</span>
+  </button>
+
+  <button onclick="showPage('predictions')">
+    <img src="images/icons/predictions.png" alt="">
+    <span>Predict</span>
+  </button>
+
+  <button onclick="showPage('wallet')">
+    <img src="images/icons/wallet.png" alt="">
+    <span>Wallet</span>
+  </button>
+</nav>
+
+<script src="app.js"></script>
+
+</body>
+</html>
