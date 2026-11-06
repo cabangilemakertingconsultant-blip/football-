@@ -93,19 +93,19 @@
   <script src="images.js"></script>
   <script type="module" src="app.js"></script>
 
-  <script>
-    document.addEventListener("DOMContentLoaded", function () {
-      document.querySelectorAll("[data-page]").forEach(function (button) {
-        button.addEventListener("click", function () {
-          if (typeof window.showPage === "function") {
-            window.showPage(button.dataset.page);
-          } else {
-            console.error("Cabangile Football: app.js has not loaded.");
-          }
-        });
-      });
+ <script>
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll("[data-page]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      alert("Button works. showPage is: " + typeof window.showPage);
+
+      if (typeof window.showPage === "function") {
+        window.showPage(button.dataset.page);
+      }
     });
-  </script>
+  });
+});
+</script>
 
 </body>
 </html>
