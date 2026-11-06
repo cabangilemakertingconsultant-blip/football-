@@ -1,4 +1,5 @@
 
+
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 
 import {
@@ -10,12 +11,14 @@ import {
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
 
-import { getFirestore } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
 
-// ======================================
-// CABANGILE FOOTBALL - FIREBASE CONFIG
-// ======================================
-
+// FIREBASE CONFIGURATION
 const firebaseConfig = {
   apiKey: "AIzaSyChXiA8otw90zk4rk-pv-4uo2jMaanKXpI",
   authDomain: "football-d6b07.firebaseapp.com",
@@ -26,7 +29,6 @@ const firebaseConfig = {
   measurementId: "G-6M9Q9GJ04X"
 };
 
-// INITIALIZE FIREBASE
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -36,22 +38,17 @@ const content = document.getElementById("page-content");
 let currentPage = "home";
 let registerMode = false;
 
-// ======================================
 // PAGE NAVIGATION
-// ======================================
-
 function showPage(page) {
   currentPage = page;
 
   const pages = {
     home: `
       <h2>🏆 Featured Football</h2>
-
       <div class="football-card">
         <h3>Welcome to Cabangile Football</h3>
         <p>Your football world starts here.</p>
       </div>
-
       <div class="football-card">
         <h3>Today's Matches</h3>
         <p>Football fixtures and results will appear here.</p>
@@ -60,7 +57,6 @@ function showPage(page) {
 
     matches: `
       <h2>⚽ Football Matches</h2>
-
       <div class="football-card">
         <h3>Fixtures and Results</h3>
         <p>Your football matches will appear here.</p>
@@ -69,16 +65,14 @@ function showPage(page) {
 
     predictions: `
       <h2>📊 Football Predictions</h2>
-
       <div class="football-card">
         <h3>Make Your Prediction</h3>
-        <p>Predict the results of your favourite teams.</p>
+        <p>Predict your favourite teams.</p>
       </div>
     `,
 
     wallet: `
       <h2>💰 My Wallet</h2>
-
       <div class="football-card">
         <h3>Demo Balance</h3>
         <p>R0.00</p>
@@ -88,9 +82,8 @@ function showPage(page) {
 
     profile: `
       <h2>👤 My Account</h2>
-
       <div class="football-card" id="account-area">
-        <p>Loading account...</p>
+        Loading account...
       </div>
     `
   };
@@ -104,32 +97,25 @@ function showPage(page) {
   window.scrollTo(0, 0);
 }
 
-// MAKE FUNCTION AVAILABLE TO HTML BUTTONS
 window.showPage = showPage;
 
-// ======================================
 // ACCOUNT DISPLAY
-// ======================================
-
 function renderAccount() {
   const area = document.getElementById("account-area");
-
   if (!area) return;
 
-  // USER IS SIGNED IN
   if (auth.currentUser) {
     area.innerHTML = `
       <h3>Welcome to Cabangile Football!</h3>
-
+      <p id="account-name">Loading profile...</p>
       <p id="account-email"></p>
-
-      <button id="logout-button">
-        Sign Out
-      </button>
+      <button id="logout-button">Sign Out</button>
     `;
 
     area.querySelector("#account-email").textContent =
       auth.currentUser.email || "";
+
+    loadProfileName(auth.currentUser.uid);
 
     document.getElementById("logout-button").onclick =
       async () => {
@@ -145,13 +131,18 @@ function renderAccount() {
     return;
   }
 
-  // USER IS NOT SIGNED IN
   area.innerHTML = `
-    <h3 id="form-heading">
-      Create your account
-    </h3>
+    <h3 id="form-heading">Create your account</h3>
 
     <form id="account-form">
+
+      <input
+        type="text"
+        id="full-name"
+        placeholder="Your full name"
+        autocomplete="name"
+        required
+      >
 
       <input
         type="email"
@@ -166,7 +157,7 @@ function renderAccount() {
         id="password"
         placeholder="Password (minimum 6 characters)"
         minlength="6"
-        autocomplete="current-password"
+        autocomplete="new-password"
         required
       >
 
@@ -176,11 +167,8 @@ function renderAccount() {
 
     </form>
 
-    <button
-      id="forgot-password"
-      type="button"
-      style="display:none"
-    >
+    <button id="forgot-password" type="button"
+      style="display:none">
       Forgot Password?
     </button>
 
@@ -193,7 +181,6 @@ function renderAccount() {
 
   updateFormMode();
 
-  // SWITCH BETWEEN REGISTER AND LOGIN
   document.getElementById("switch-mode").onclick = () => {
     registerMode = !registerMode;
     updateFormMode();
@@ -203,6 +190,9 @@ function renderAccount() {
   document.getElementById("account-form").onsubmit =
     async (event) => {
       event.preventDefault();
+
+      const fullName =
+        document.getElementById("full-name").value.trim();
 
       const email =
         document.getElementById("email").value.trim();
@@ -221,14 +211,27 @@ function renderAccount() {
 
       try {
         if (registerMode) {
-          await createUserWithEmailAndPassword(
-            auth,
-            email,
-            password
+          const credential =
+            await createUserWithEmailAndPassword(
+              auth,
+              email,
+              password
+            );
+
+          // SAVE USER PROFILE IN FIRESTORE
+          await setDoc(
+            doc(db, "users", credential.user.uid),
+            {
+              uid: credential.user.uid,
+              displayName: fullName,
+              email: email,
+              createdAt: serverTimestamp()
+            }
           );
 
           message.textContent =
-            "Account created successfully!";
+            "Account and profile created successfully!";
+
         } else {
           await signInWithEmailAndPassword(
             auth,
@@ -236,8 +239,7 @@ function renderAccount() {
             password
           );
 
-          message.textContent =
-            "Welcome back!";
+          message.textContent = "Welcome back!";
         }
 
       } catch (error) {
@@ -259,7 +261,7 @@ function renderAccount() {
 
       if (!email) {
         message.textContent =
-          "Please enter your email address first.";
+          "Enter your email address first.";
         return;
       }
 
@@ -267,7 +269,7 @@ function renderAccount() {
         await sendPasswordResetEmail(auth, email);
 
         message.textContent =
-          "If an account exists for that email, a password reset email will be sent. Check your inbox and spam folder.";
+          "If an account exists for this address, a reset email will be sent. Check your inbox and spam folder.";
 
       } catch (error) {
         message.textContent = friendlyAuthError(error);
@@ -275,104 +277,84 @@ function renderAccount() {
     };
 }
 
-// ======================================
+// LOAD USER PROFILE NAME
+async function loadProfileName(uid) {
+  const nameElement = document.getElementById("account-name");
+  if (!nameElement) return;
+
+  try {
+    const { getDoc } = await import(
+      "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js"
+    );
+
+    const profile = await getDoc(doc(db, "users", uid));
+
+    if (profile.exists()) {
+      nameElement.textContent =
+        "Name: " + (profile.data().displayName || "Football Fan");
+    } else {
+      nameElement.textContent = "Profile not found.";
+    }
+  } catch (error) {
+    nameElement.textContent = "Unable to load profile.";
+    console.error(error);
+  }
+}
+
 // FORM MODE
-// ======================================
-
 function updateFormMode() {
-  const heading =
-    document.getElementById("form-heading");
-
-  const submit =
-    document.getElementById("submit-button");
-
-  const switchButton =
-    document.getElementById("switch-mode");
-
-  const forgotButton =
-    document.getElementById("forgot-password");
+  const heading = document.getElementById("form-heading");
+  const submit = document.getElementById("submit-button");
+  const switchButton = document.getElementById("switch-mode");
+  const forgotButton = document.getElementById("forgot-password");
+  const nameInput = document.getElementById("full-name");
 
   if (!heading || !submit || !switchButton) return;
 
   if (registerMode) {
     heading.textContent = "Create your account";
     submit.textContent = "Create Account";
-
-    switchButton.textContent =
-      "Already registered? Sign in";
-
+    switchButton.textContent = "Already registered? Sign in";
     forgotButton.style.display = "none";
-
+    nameInput.style.display = "block";
+    nameInput.required = true;
   } else {
-    heading.textContent =
-      "Sign in to Cabangile Football";
-
+    heading.textContent = "Sign in to Cabangile Football";
     submit.textContent = "Sign In";
-
-    switchButton.textContent =
-      "New here? Create an account";
-
+    switchButton.textContent = "New here? Create an account";
     forgotButton.style.display = "block";
+    nameInput.style.display = "none";
+    nameInput.required = false;
   }
 }
 
-// ======================================
-// FRIENDLY AUTHENTICATION ERRORS
-// ======================================
-
+// FRIENDLY ERRORS
 function friendlyAuthError(error) {
   const errors = {
-    "auth/invalid-email":
-      "Please enter a valid email address.",
-
-    "auth/user-not-found":
-      "Account not found. Check your email or create an account.",
-
-    "auth/wrong-password":
-      "Incorrect password. Try again or reset your password.",
-
-    "auth/invalid-credential":
-      "Email or password is incorrect.",
-
-    "auth/email-already-in-use":
-      "This email is already registered. Please sign in.",
-
-    "auth/weak-password":
-      "Please choose a stronger password with at least 6 characters.",
-
-    "auth/too-many-requests":
-      "Too many attempts. Please wait and try again.",
-
-    "auth/network-request-failed":
-      "Network problem. Check your internet connection."
+    "auth/invalid-email": "Enter a valid email address.",
+    "auth/email-already-in-use": "This email is already registered. Please sign in.",
+    "auth/weak-password": "Choose a password with at least 6 characters.",
+    "auth/invalid-credential": "Email or password is incorrect.",
+    "auth/too-many-requests": "Too many attempts. Please wait and try again.",
+    "auth/network-request-failed": "Check your internet connection."
   };
 
   return errors[error.code] ||
     "Something went wrong. Please try again.";
 }
 
-// ======================================
 // LOGIN STATUS
-// ======================================
-
 onAuthStateChanged(auth, (user) => {
   if (currentPage === "profile") {
     renderAccount();
   }
 
-  console.log(
-    user
-      ? "Cabangile user signed in."
-      : "No user signed in."
-  );
+  console.log(user ? "User signed in." : "No user signed in.");
 });
 
-// ======================================
 // START WEBSITE
-// ======================================
-
 showPage("home");
 
-console.log("Cabangile Football Firebase is ready!");
+console.log("Cabangile Football is connected to Firebase!");
 
 
