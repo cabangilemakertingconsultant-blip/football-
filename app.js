@@ -437,21 +437,4 @@ function friendlyAuthError(error) {
     "auth/weak-password": "Use at least 6 characters.",
     "auth/invalid-credential": "Email or password is incorrect.",
     "auth/too-many-requests": "Too many attempts. Try again later.",
-    "auth/network-request-failed": "Check your internet connection."
-  };
-
-  return errors[error.code] || error.message ||
-    "Something went wrong. Please try again.";
-}
-
-// LOGIN STATUS
-onAuthStateChanged(auth, () => {
-  if (currentPage === "profile") {
-    renderAccount();
-  }
-});
-
-// START WEBSITE
-showPage("home");
-
-console.log("Cabangile Football is ready!");
+  
