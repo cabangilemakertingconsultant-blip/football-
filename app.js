@@ -480,6 +480,4 @@ onAuthStateChanged(auth, (user) => {
 // START WEBSITE
 // ======================================
 
-showPage("home");
-
-console.log("Cabangile Football Firebase is ready!");
+showP
