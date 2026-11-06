@@ -1,23 +1,17 @@
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
+/* =====================================
+   CABANGILE FOOTBALL
+   Main application
+   ===================================== */
 
-import {
-  getAuth,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  sendPasswordResetEmail,
-  signOut,
-  onAuthStateChanged,
-  updateProfile
-} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+// APP STATE
+let currentPage = "home";
+let registerMode = false;
 
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp
-} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+let auth = null;
+let db = null;
+let firebaseReady = false;
+let firebaseError = null;
 
 // FIREBASE CONFIGURATION
 const firebaseConfig = {
@@ -30,42 +24,41 @@ const firebaseConfig = {
   measurementId: "G-6M9Q9GJ04X"
 };
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+// FIREBASE FUNCTIONS
+let createUserWithEmailAndPassword;
+let signInWithEmailAndPassword;
+let sendPasswordResetEmail;
+let signOut;
+let onAuthStateChanged;
+let updateProfile;
+let doc;
+let getDoc;
+let setDoc;
+let serverTimestamp;
 
-const content = document.getElementById("page-content");
-
-let currentPage = "home";
-let registerMode = false;
-
-// CREATE OR CHECK PROFILE
-async function ensureUserProfile(user, fullName = "") {
-  const userRef = doc(db, "users", user.uid);
-  const profile = await getDoc(userRef);
-
-  if (!profile.exists()) {
-    await setDoc(userRef, {
-      uid: user.uid,
-      displayName: fullName || user.displayName || "Football Fan",
-      email: user.email || "",
-      phoneNumber: "",
-      createdAt: serverTimestamp()
-    });
-  }
-}
-
+// =====================================
 // PAGE NAVIGATION
+// =====================================
+
 function showPage(page) {
-  currentPage = page;
+
+  const content = document.getElementById("page-content");
+
+  if (!content) {
+    console.error("Page content element not found.");
+    return;
+  }
 
   const pages = {
+
     home: `
       <h2>🏆 Featured Football</h2>
+
       <div class="football-card">
         <h3>Welcome to Cabangile Football</h3>
         <p>Your football world starts here.</p>
       </div>
+
       <div class="football-card">
         <h3>Today's Matches</h3>
         <p>Football fixtures and results will appear here.</p>
@@ -74,6 +67,7 @@ function showPage(page) {
 
     matches: `
       <h2>⚽ Football Matches</h2>
+
       <div class="football-card">
         <h3>Fixtures and Results</h3>
         <p>Your football matches will appear here.</p>
@@ -82,6 +76,7 @@ function showPage(page) {
 
     predictions: `
       <h2>📊 Football Predictions</h2>
+
       <div class="football-card">
         <h3>Make Your Prediction</h3>
         <p>Predict your favourite teams.</p>
@@ -90,6 +85,7 @@ function showPage(page) {
 
     wallet: `
       <h2>💰 My Wallet</h2>
+
       <div class="football-card">
         <h3>Demo Balance</h3>
         <p>R0.00</p>
@@ -99,33 +95,192 @@ function showPage(page) {
 
     profile: `
       <h2>👤 My Account</h2>
+
       <div class="football-card" id="account-area">
-        Loading account...
+        Checking account...
       </div>
     `
   };
 
-  content.innerHTML = pages[page] || pages.home;
+  currentPage = pages[page] ? page : "home";
 
-  if (page === "profile") {
-    renderAccount();
-  }
+  content.innerHTML = pages[currentPage];
 
   window.scrollTo(0, 0);
+
+  if (currentPage === "profile") {
+    renderAccount();
+  }
 }
 
+// Make navigation available to HTML
 window.showPage = showPage;
 
+// Connect all navigation buttons
+document.querySelectorAll("[data-page]").forEach(button => {
+
+  button.addEventListener("click", () => {
+    showPage(button.dataset.page);
+  });
+
+});
+
+// =====================================
+// FIREBASE INITIALIZATION
+// =====================================
+
+async function initializeFirebase() {
+
+  try {
+
+    console.log("Loading Firebase...");
+
+    const [appSDK, authSDK, firestoreSDK] =
+      await Promise.all([
+
+        import("https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js"),
+
+        import("https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js"),
+
+        import("https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js")
+
+      ]);
+
+    const app = appSDK.initializeApp(firebaseConfig);
+
+    auth = authSDK.getAuth(app);
+
+    db = firestoreSDK.getFirestore(app);
+
+    createUserWithEmailAndPassword =
+      authSDK.createUserWithEmailAndPassword;
+
+    signInWithEmailAndPassword =
+      authSDK.signInWithEmailAndPassword;
+
+    sendPasswordResetEmail =
+      authSDK.sendPasswordResetEmail;
+
+    signOut = authSDK.signOut;
+
+    onAuthStateChanged = authSDK.onAuthStateChanged;
+
+    updateProfile = authSDK.updateProfile;
+
+    doc = firestoreSDK.doc;
+
+    getDoc = firestoreSDK.getDoc;
+
+    setDoc = firestoreSDK.setDoc;
+
+    serverTimestamp = firestoreSDK.serverTimestamp;
+
+    firebaseReady = true;
+
+    console.log("Firebase connected successfully.");
+
+    onAuthStateChanged(auth, () => {
+
+      if (currentPage === "profile") {
+        renderAccount();
+      }
+
+    });
+
+    if (currentPage === "profile") {
+      renderAccount();
+    }
+
+  } catch (error) {
+
+    firebaseError = error;
+
+    console.error("Firebase loading error:", error);
+
+    if (currentPage === "profile") {
+      renderAccount();
+    }
+
+  }
+}
+
+// =====================================
+// CREATE USER PROFILE
+// =====================================
+
+async function ensureUserProfile(user) {
+
+  const userRef = doc(db, "users", user.uid);
+
+  const profile = await getDoc(userRef);
+
+  if (!profile.exists()) {
+
+    await setDoc(userRef, {
+
+      uid: user.uid,
+
+      displayName: user.displayName || "Football Fan",
+
+      email: user.email || "",
+
+      phoneNumber: "",
+
+      createdAt: serverTimestamp()
+
+    });
+
+  }
+}
+
+// =====================================
 // ACCOUNT DISPLAY
+// =====================================
+
 async function renderAccount() {
+
   const area = document.getElementById("account-area");
+
   if (!area) return;
+
+  if (!firebaseReady) {
+
+    area.innerHTML = firebaseError
+      ? `<p>Firebase could not load. Please check your internet connection and try again.</p>
+         <p id="firebase-error"></p>
+         <button type="button" id="retry-firebase">Try Again</button>`
+      : `<p>Connecting to your account...</p>`;
+
+    if (firebaseError) {
+
+      const errorBox = document.getElementById("firebase-error");
+
+      if (errorBox) {
+        errorBox.textContent = firebaseError.message;
+      }
+
+      document.getElementById("retry-firebase").onclick = () => {
+
+        firebaseError = null;
+
+        area.innerHTML = "Connecting to your account...";
+
+        initializeFirebase();
+
+      };
+
+    }
+
+    return;
+  }
 
   const user = auth.currentUser;
 
-  // SIGNED-IN USER PROFILE
+  // SIGNED-IN ACCOUNT
   if (user) {
+
     area.innerHTML = `
+
       <h3>⚽ My Football Profile</h3>
 
       <p id="account-email"></p>
@@ -133,6 +288,7 @@ async function renderAccount() {
       <form id="profile-form">
 
         <label for="profile-name">Full Name</label>
+
         <input
           type="text"
           id="profile-name"
@@ -141,6 +297,7 @@ async function renderAccount() {
         >
 
         <label for="profile-phone">Phone Number</label>
+
         <input
           type="tel"
           id="profile-phone"
@@ -155,18 +312,23 @@ async function renderAccount() {
 
       <p id="profile-message" role="status"></p>
 
-      <button id="logout-button">Sign Out</button>
+      <button type="button" id="logout-button">
+        Sign Out
+      </button>
+
     `;
 
     document.getElementById("account-email").textContent =
       "Email: " + (user.email || "");
 
     const nameInput = document.getElementById("profile-name");
+
     const phoneInput = document.getElementById("profile-phone");
+
     const message = document.getElementById("profile-message");
 
-    // LOAD EXISTING PROFILE
     try {
+
       await ensureUserProfile(user);
 
       const profile = await getDoc(doc(db, "users", user.uid));
@@ -174,85 +336,120 @@ async function renderAccount() {
       if (!document.getElementById("profile-form")) return;
 
       if (profile.exists()) {
+
         const data = profile.data();
 
         nameInput.value =
           data.displayName || user.displayName || "";
 
         phoneInput.value = data.phoneNumber || "";
+
       }
 
     } catch (error) {
+
       console.error(error);
+
       message.textContent =
-        "Could not load profile. Check your database rules.";
+        "Could not load profile: " + error.message;
+
     }
 
-    // SAVE PROFILE
-    document.getElementById("profile-form").onsubmit =
-      async (event) => {
+    const profileForm = document.getElementById("profile-form");
+
+    if (profileForm) {
+
+      profileForm.onsubmit = async (event) => {
+
         event.preventDefault();
 
         const fullName = nameInput.value.trim();
+
         const phoneNumber = phoneInput.value.trim();
 
-        const saveButton =
-          document.getElementById("save-profile");
+        const saveButton = document.getElementById("save-profile");
 
         if (!fullName) {
+
           message.textContent = "Enter your full name.";
+
           return;
         }
 
         saveButton.disabled = true;
+
         message.textContent = "Saving profile...";
 
         try {
+
           await updateProfile(user, {
             displayName: fullName
           });
 
           await setDoc(
+
             doc(db, "users", user.uid),
+
             {
+
               uid: user.uid,
+
               displayName: fullName,
+
               email: user.email || "",
+
               phoneNumber: phoneNumber,
+
               updatedAt: serverTimestamp()
+
             },
+
             { merge: true }
+
           );
 
           message.textContent =
             "Your profile has been saved successfully!";
 
         } catch (error) {
+
           console.error(error);
+
           message.textContent =
             "Unable to save profile: " + error.message;
 
         } finally {
+
           saveButton.disabled = false;
+
         }
+
       };
 
-    // SIGN OUT
+    }
+
     document.getElementById("logout-button").onclick =
       async () => {
+
         try {
+
           await signOut(auth);
+
         } catch (error) {
+
           alert(error.message);
+
         }
+
       };
 
     return;
   }
 
-  // LOGIN AND REGISTRATION
+  // SIGN IN / REGISTER FORM
   area.innerHTML = `
-    <h3 id="form-heading">Create your account</h3>
+
+    <h3 id="form-heading">Sign in to Cabangile Football</h3>
 
     <form id="account-form">
 
@@ -261,7 +458,6 @@ async function renderAccount() {
         id="full-name"
         placeholder="Your full name"
         autocomplete="name"
-        required
       >
 
       <input
@@ -281,33 +477,37 @@ async function renderAccount() {
       >
 
       <button type="submit" id="submit-button">
-        Create Account
+        Sign In
       </button>
 
     </form>
 
-    <button id="forgot-password" type="button"
-      style="display:none">
+    <button type="button" id="forgot-password">
       Forgot Password?
     </button>
 
     <p id="auth-message" role="status"></p>
 
-    <button id="switch-mode" type="button">
-      Already registered? Sign in
+    <button type="button" id="switch-mode">
+      New here? Create an account
     </button>
+
   `;
 
   updateFormMode();
 
   document.getElementById("switch-mode").onclick = () => {
+
     registerMode = !registerMode;
+
     updateFormMode();
+
   };
 
-  // REGISTER OR SIGN IN
+  // SIGN IN OR CREATE ACCOUNT
   document.getElementById("account-form").onsubmit =
     async (event) => {
+
       event.preventDefault();
 
       const fullName =
@@ -325,14 +525,26 @@ async function renderAccount() {
       const submit =
         document.getElementById("submit-button");
 
+      if (registerMode && !fullName) {
+
+        message.textContent = "Enter your full name.";
+
+        return;
+      }
+
       submit.disabled = true;
+
       message.textContent = "Please wait...";
 
       try {
+
         if (registerMode) {
+
           const credential =
             await createUserWithEmailAndPassword(
-              auth, email, password
+              auth,
+              email,
+              password
             );
 
           await updateProfile(credential.user, {
@@ -340,42 +552,61 @@ async function renderAccount() {
           });
 
           await setDoc(
+
             doc(db, "users", credential.user.uid),
+
             {
+
               uid: credential.user.uid,
+
               displayName: fullName,
+
               email: email,
+
               phoneNumber: "",
+
               createdAt: serverTimestamp()
+
             }
+
           );
 
           message.textContent =
-            "Account and profile created successfully!";
+            "Account created successfully!";
 
         } else {
+
           const credential =
             await signInWithEmailAndPassword(
-              auth, email, password
+              auth,
+              email,
+              password
             );
 
           await ensureUserProfile(credential.user);
 
           message.textContent = "Welcome back!";
+
         }
 
       } catch (error) {
+
         console.error(error);
+
         message.textContent = friendlyAuthError(error);
 
       } finally {
+
         submit.disabled = false;
+
       }
+
     };
 
   // FORGOT PASSWORD
   document.getElementById("forgot-password").onclick =
     async () => {
+
       const email =
         document.getElementById("email").value.trim();
 
@@ -383,58 +614,128 @@ async function renderAccount() {
         document.getElementById("auth-message");
 
       if (!email) {
+
         message.textContent =
           "Enter your email address first.";
+
         return;
       }
 
       try {
+
         await sendPasswordResetEmail(auth, email);
 
         message.textContent =
-          "If an account exists, a password reset email will be sent. Check your inbox.";
+          "Password reset instructions have been sent if the account exists. Check your inbox.";
 
       } catch (error) {
+
         message.textContent = friendlyAuthError(error);
+
       }
+
     };
+
 }
 
-// LOGIN / REGISTRATION MODE
+// =====================================
+// LOGIN / REGISTER MODE
+// =====================================
+
 function updateFormMode() {
+
   const heading = document.getElementById("form-heading");
+
   const submit = document.getElementById("submit-button");
+
   const switchButton = document.getElementById("switch-mode");
+
   const forgotButton = document.getElementById("forgot-password");
+
   const nameInput = document.getElementById("full-name");
 
   if (!heading || !submit || !switchButton ||
       !forgotButton || !nameInput) return;
 
   if (registerMode) {
+
     heading.textContent = "Create your account";
+
     submit.textContent = "Create Account";
+
     switchButton.textContent = "Already registered? Sign in";
+
     forgotButton.style.display = "none";
+
     nameInput.style.display = "block";
+
     nameInput.required = true;
 
   } else {
+
     heading.textContent = "Sign in to Cabangile Football";
+
     submit.textContent = "Sign In";
+
     switchButton.textContent = "New here? Create an account";
+
     forgotButton.style.display = "block";
+
     nameInput.style.display = "none";
+
     nameInput.required = false;
+
   }
+
 }
 
-// FRIENDLY ERRORS
+// =====================================
+// FRIENDLY ERROR MESSAGES
+// =====================================
+
 function friendlyAuthError(error) {
+
   const errors = {
-    "auth/invalid-email": "Enter a valid email address.",
-    "auth/email-already-in-use": "This email is already registered.",
-    "auth/weak-password": "Use at least 6 characters.",
-    "auth/invalid-credential": "Email or password is incorrect.",
-    "auth/too-many-requests": "Too many attempts. Try again later.",
-  
+
+    "auth/invalid-email":
+      "Enter a valid email address.",
+
+    "auth/email-already-in-use":
+      "This email is already registered.",
+
+    "auth/weak-password":
+      "Use at least 6 characters.",
+
+    "auth/invalid-credential":
+      "Email or password is incorrect.",
+
+    "auth/too-many-requests":
+      "Too many attempts. Try again later.",
+
+    "auth/network-request-failed":
+      "Network problem. Check your internet connection.",
+
+    "permission-denied":
+      "Database permission denied. Check Firestore rules."
+
+  };
+
+  return errors[error.code] ||
+    error.message ||
+    "Something went wrong. Please try again.";
+
+}
+
+// =====================================
+// START APPLICATION
+// =====================================
+
+// Show the home page immediately.
+// Navigation does not wait for Firebase.
+
+showPage("home");
+
+// Load Firebase separately.
+initializeFirebase();
+
+console.log("Cabangile Football navigation is ready.");
