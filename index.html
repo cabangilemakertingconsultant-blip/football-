@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,81 +6,106 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#071426">
   <meta name="description" content="Cabangile Football - Your football world">
+
   <title>Cabangile Football</title>
+
   <link rel="stylesheet" href="style.css">
   <link rel="icon" type="image/png" href="logo.png">
 </head>
 
 <body>
 
-<header class="topbar">
-  <div class="logo">
-    <img src="logo.png" alt="Cabangile Football Logo">
-    <span>CABANGILE</span>
-  </div>
-  <button onclick="showPage('profile')" aria-label="Profile">👤</button>
-</header>
-
-<main>
-
-  <section class="welcome">
-    <p>WELCOME TO</p>
-    <h1>YOUR FOOTBALL WORLD</h1>
-    <p>Football lives here.</p>
-  </section>
-
-  <section class="quick-links">
-    <button onclick="showPage('matches')">
-      <img src="matches.png" alt="">
-      Matches
-    </button>
-
-    <button onclick="showPage('predictions')">
-      <img src="predictions.png" alt="">
-      Predictions
-    </button>
-
-    <button onclick="showPage('wallet')">
-      <img src="wallet.png" alt="">
-      Wallet
-    </button>
-  </section>
-
-  <section class="content" id="page-content">
-    <h2>🏆 Featured Football</h2>
-
-    <div class="football-card">
-      <h3>Today's Matches</h3>
-      <p>Football fixtures and results will appear here.</p>
+  <header class="topbar">
+    <div class="logo">
+      <img src="logo.png" alt="Cabangile Football Logo">
+      <span>CABANGILE</span>
     </div>
-  </section>
 
-</main>
+    <button type="button" data-page="profile" aria-label="Profile">
+      👤
+    </button>
+  </header>
 
-<nav class="bottom-nav">
-  <button onclick="showPage('home')">
-    <img src="home.png" alt="">
-    <span>Home</span>
-  </button>
+  <main>
 
-  <button onclick="showPage('matches')">
-    <img src="matches.png" alt="">
-    <span>Matches</span>
-  </button>
+    <section class="welcome">
+      <p>WELCOME TO</p>
+      <h1>YOUR FOOTBALL WORLD</h1>
+      <p>Football lives here.</p>
+    </section>
 
-  <button onclick="showPage('predictions')">
-    <img src="predictions.png" alt="">
-    <span>Predict</span>
-  </button>
+    <section class="quick-links">
 
-  <button onclick="showPage('wallet')">
-    <img src="wallet.png" alt="">
-    <span>Wallet</span>
-  </button>
-</nav>
+      <button type="button" data-page="matches">
+        <img src="matches.png" alt="">
+        Matches
+      </button>
 
-<script src="images.js"></script>
-<script type="module" src="app.js"></script>
+      <button type="button" data-page="predictions">
+        <img src="predictions.png" alt="">
+        Predictions
+      </button>
+
+      <button type="button" data-page="wallet">
+        <img src="wallet.png" alt="">
+        Wallet
+      </button>
+
+    </section>
+
+    <section class="content" id="page-content">
+
+      <h2>🏆 Featured Football</h2>
+
+      <div class="football-card">
+        <h3>Today's Matches</h3>
+        <p>Football fixtures and results will appear here.</p>
+      </div>
+
+    </section>
+
+  </main>
+
+  <nav class="bottom-nav">
+
+    <button type="button" data-page="home">
+      <img src="home.png" alt="">
+      <span>Home</span>
+    </button>
+
+    <button type="button" data-page="matches">
+      <img src="matches.png" alt="">
+      <span>Matches</span>
+    </button>
+
+    <button type="button" data-page="predictions">
+      <img src="predictions.png" alt="">
+      <span>Predict</span>
+    </button>
+
+    <button type="button" data-page="wallet">
+      <img src="wallet.png" alt="">
+      <span>Wallet</span>
+    </button>
+
+  </nav>
+
+  <script src="images.js"></script>
+  <script type="module" src="app.js"></script>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      document.querySelectorAll("[data-page]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          if (typeof window.showPage === "function") {
+            window.showPage(button.dataset.page);
+          } else {
+            console.error("Cabangile Football: app.js has not loaded.");
+          }
+        });
+      });
+    });
+  </script>
 
 </body>
 </html>
