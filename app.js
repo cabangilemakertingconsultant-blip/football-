@@ -143,23 +143,7 @@ async function initializeFirebase() {
     sendPasswordResetEmail =
       authSDK.sendPasswordResetEmail;
 
-    signOut = authSDK.signOut;
-    onAuthStateChanged = authSDK.onAuthStateChanged;
-    updateProfile = authSDK.updateProfile;
-
-    doc = firestoreSDK.doc;
-    getDoc = firestoreSDK.getDoc;
-    setDoc = firestoreSDK.setDoc;
-    serverTimestamp = firestoreSDK.serverTimestamp;
-
-    firebaseReady = true;
-
-    console.log("Firebase connected successfully.");
-
-    onAuthStateChanged(auth, () => {
-      if (currentPage === "profile") {
-        renderAccount();
-      }
+    signOut = authSDK.signOut
     });
 
     if (currentPage === "profile") {
