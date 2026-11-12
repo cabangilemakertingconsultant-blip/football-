@@ -15,7 +15,7 @@ let firebaseError = null;
 
 // FIREBASE CONFIGURATION
 const firebaseConfig = {
-  apiKey: "AIzaSyChXiA8otw90zk4rk-pv-4uo2jMaanKXpI",
+  apiKey: "AIzaSyChXiA8otw90zk4rk-pv-4-uo2jMaanKXpI",
   authDomain: "football-d6b07.firebaseapp.com",
   projectId: "football-d6b07",
   storageBucket: "football-d6b07.firebasestorage.app",
@@ -35,6 +35,20 @@ let doc;
 let getDoc;
 let setDoc;
 let serverTimestamp;
+
+// =====================================
+// LIVE FOOTBALL API SETTINGS
+// =====================================
+
+// API key stays safely inside Cloudflare.
+const FOOTBALL_WORKER_URL =
+  "https://bold-limit-9e1a.cabangilemakertingconsultant.workers.dev";
+
+// Cache results briefly to reduce API requests.
+let matchesCache = null;
+let matchesCacheTime = 0;
+let matchesLoading = false;
+const MATCHES_CACHE_DURATION = 60 * 1000;
 
 // =====================================
 // PAGE NAVIGATION
@@ -57,16 +71,18 @@ function showPage(page) {
       </div>
       <div class="football-card">
         <h3>Today's Matches</h3>
-        <p>Football fixtures and results will appear here.</p>
+        <p>Open Matches to see live football scores.</p>
       </div>
     `,
 
     matches: `
-      <h2>⚽ Football Matches</h2>
+      <h2>⚽ Live Football Matches</h2>
       <div class="football-card">
-        <h3>Fixtures and Results</h3>
-        <p>Your football matches will appear here.</p>
+        <p>Live scores from football competitions around the world.</p>
+        <button type="button" id="refresh-matches">🔄 Refresh Matches</button>
+        <p id="matches-message" role="status">Loading live matches...</p>
       </div>
+      <div id="matches-list"></div>
     `,
 
     predictions: `
@@ -102,16 +118,229 @@ function showPage(page) {
   if (currentPage === "profile") {
     renderAccount();
   }
+
+  if (currentPage === "matches") {
+    loadLiveMatches();
+  }
 }
 
-// Make navigation available to HTML
+// Make navigation available to HTML.
 window.showPage = showPage;
 
-// Connect all navigation buttons
+// Connect all navigation buttons.
 document.querySelectorAll("[data-page]").forEach(button => {
   button.addEventListener("click", () => {
     showPage(button.dataset.page);
   });
+});
+
+// =====================================
+// LIVE FOOTBALL MATCHES
+// =====================================
+
+function escapeMatchText(value) {
+  return String(value ?? "").replace(/[&<>"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character]);
+}
+
+function safeFootballImage(url) {
+  if (typeof url !== "string" || !url.startsWith("https://")) {
+    return "";
+  }
+
+  return escapeMatchText(url);
+}
+
+function formatMatchTime(dateValue) {
+  if (!dateValue) return "Time unavailable";
+
+  const date = new Date(dateValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Time unavailable";
+  }
+
+  return date.toLocaleString("en-ZA", {
+    timeZone: "Africa/Johannesburg",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+}
+
+function renderLiveMatches(fixtures) {
+  const list = document.getElementById("matches-list");
+  const message = document.getElementById("matches-message");
+
+  if (!list || !message) return;
+
+  if (!Array.isArray(fixtures) || fixtures.length === 0) {
+    list.innerHTML = "";
+    message.textContent =
+      "There are no live matches right now. Try again later.";
+    return;
+  }
+
+  message.textContent = fixtures.length + " live match(es) found.";
+
+  list.innerHTML = fixtures.map(item => {
+    const fixture = item.fixture || {};
+    const league = item.league || {};
+    const teams = item.teams || {};
+    const goals = item.goals || {};
+    const status = fixture.status || {};
+
+    const home = teams.home || {};
+    const away = teams.away || {};
+
+    const leagueLogo = safeFootballImage(league.logo);
+    const homeLogo = safeFootballImage(home.logo);
+    const awayLogo = safeFootballImage(away.logo);
+
+    const score =
+      (goals.home ?? "-") + " - " + (goals.away ?? "-");
+
+    const matchStatus = status.elapsed != null
+      ? (status.long || status.short || "LIVE") +
+        " · " + status.elapsed + "'"
+      : (status.long || status.short || "LIVE");
+
+    return `
+      <div class="football-card live-match-card">
+        <div class="match-league">
+          ${leagueLogo
+            ? `<img src="${leagueLogo}" alt="" width="22" height="22">`
+            : ""}
+          <strong>${escapeMatchText(league.name || "Football")}</strong>
+        </div>
+
+        <div class="match-teams">
+          <div class="match-team">
+            ${homeLogo
+              ? `<img src="${homeLogo}" alt="" width="32" height="32">`
+              : ""}
+            <span>${escapeMatchText(home.name || "Home team")}</span>
+          </div>
+
+          <strong class="match-score">${escapeMatchText(score)}</strong>
+
+          <div class="match-team">
+            ${awayLogo
+              ? `<img src="${awayLogo}" alt="" width="32" height="32">`
+              : ""}
+            <span>${escapeMatchText(away.name || "Away team")}</span>
+          </div>
+        </div>
+
+        <p class="match-status">${escapeMatchText(matchStatus)}</p>
+        <p class="match-time">
+          ${escapeMatchText(formatMatchTime(fixture.date))}
+          · South African time
+        </p>
+      </div>
+    `;
+  }).join("");
+}
+
+async function loadLiveMatches(forceRefresh = false) {
+  const list = document.getElementById("matches-list");
+  const message = document.getElementById("matches-message");
+  const refreshButton = document.getElementById("refresh-matches");
+
+  if (!list || !message || matchesLoading) return;
+
+  const now = Date.now();
+
+  if (
+    !forceRefresh &&
+    matchesCache &&
+    now - matchesCacheTime < MATCHES_CACHE_DURATION
+  ) {
+    renderLiveMatches(matchesCache);
+    return;
+  }
+
+  matchesLoading = true;
+
+  if (refreshButton) refreshButton.disabled = true;
+
+  message.textContent = "Loading live football scores...";
+  list.innerHTML = "";
+
+  try {
+    const response = await fetch(FOOTBALL_WORKER_URL, {
+      method: "GET",
+      cache: "no-store"
+    });
+
+    let data;
+
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error("The football service returned an unreadable response.");
+    }
+
+    if (!response.ok || data.errors?.length) {
+      const apiError = Array.isArray(data.errors)
+        ? data.errors.map(error =>
+            typeof error === "string" ? error : JSON.stringify(error)
+          ).join(", ")
+        : "";
+
+      throw new Error(
+        apiError ||
+        data.error ||
+        "Football service returned an error (HTTP " +
+          response.status + ")."
+      );
+    }
+
+    matchesCache = Array.isArray(data.response)
+      ? data.response
+      : [];
+
+    matchesCacheTime = Date.now();
+    renderLiveMatches(matchesCache);
+
+  } catch (error) {
+    console.error("Live matches error:", error);
+
+    message.textContent =
+      "Could not load live matches. Please check your connection and try again.";
+
+    list.innerHTML = `
+      <div class="football-card">
+        <p>${escapeMatchText(error.message)}</p>
+      </div>
+    `;
+
+  } finally {
+    matchesLoading = false;
+
+    const currentRefreshButton =
+      document.getElementById("refresh-matches");
+
+    if (currentRefreshButton) {
+      currentRefreshButton.disabled = false;
+    }
+  }
+}
+
+// Refresh button event.
+document.addEventListener("click", event => {
+  const button = event.target.closest("#refresh-matches");
+
+  if (button) {
+    loadLiveMatches(true);
+  }
 });
 
 // =====================================
@@ -143,7 +372,23 @@ async function initializeFirebase() {
     sendPasswordResetEmail =
       authSDK.sendPasswordResetEmail;
 
-    signOut = authSDK.signOut
+    signOut = authSDK.signOut;
+    onAuthStateChanged = authSDK.onAuthStateChanged;
+    updateProfile = authSDK.updateProfile;
+
+    doc = firestoreSDK.doc;
+    getDoc = firestoreSDK.getDoc;
+    setDoc = firestoreSDK.setDoc;
+    serverTimestamp = firestoreSDK.serverTimestamp;
+
+    firebaseReady = true;
+
+    console.log("Firebase connected successfully.");
+
+    onAuthStateChanged(auth, () => {
+      if (currentPage === "profile") {
+        renderAccount();
+      }
     });
 
     if (currentPage === "profile") {
@@ -185,6 +430,7 @@ async function ensureUserProfile(user) {
 // =====================================
 
 async function renderAccount() {
+
   const area = document.getElementById("account-area");
 
   if (!area) return;
@@ -398,4 +644,217 @@ async function renderAccount() {
   };
 
   // SIGN IN OR CREATE ACCOUNT
-  document.getElementB
+  document.getElementById("account-form").onsubmit =
+    async (event) => {
+      event.preventDefault();
+
+      const fullName =
+        document.getElementById("full-name").value.trim();
+
+      const email =
+        document.getElementById("email").value.trim();
+
+      const password =
+        document.getElementById("password").value;
+
+      const message =
+        document.getElementById("auth-message");
+
+      const submit =
+        document.getElementById("submit-button");
+
+      if (registerMode && !fullName) {
+        message.textContent = "Enter your full name.";
+        return;
+      }
+
+      submit.disabled = true;
+      message.textContent = "Please wait...";
+
+      try {
+        if (registerMode) {
+          const credential =
+            await createUserWithEmailAndPassword(
+              auth,
+              email,
+              password
+            );
+
+          await updateProfile(credential.user, {
+            displayName: fullName
+          });
+
+          await setDoc(
+            doc(db, "users", credential.user.uid),
+            {
+              uid: credential.user.uid,
+              displayName: fullName,
+              email: email,
+              phoneNumber: "",
+              createdAt: serverTimestamp()
+            }
+          );
+
+          message.textContent =
+            "Account created successfully!";
+
+        } else {
+          const credential =
+            await signInWithEmailAndPassword(
+              auth,
+              email,
+              password
+            );
+
+          await ensureUserProfile(credential.user);
+
+          message.textContent = "Welcome back!";
+        }
+
+      } catch (error) {
+        console.error(error);
+        message.textContent = friendlyAuthError(error);
+
+      } finally {
+        submit.disabled = false;
+      }
+    };
+
+  // =====================================
+  // FORGOT PASSWORD
+  // =====================================
+
+  document.getElementById("forgot-password").onclick =
+    async () => {
+      const email =
+        document.getElementById("email").value.trim();
+
+      const message =
+        document.getElementById("auth-message");
+
+      const forgotButton =
+        document.getElementById("forgot-password");
+
+      if (!email) {
+        message.textContent =
+          "Enter your email address first.";
+        return;
+      }
+
+      forgotButton.disabled = true;
+      message.textContent =
+        "Sending password reset request...";
+
+      try {
+        await sendPasswordResetEmail(auth, email);
+
+        console.log(
+          "Firebase accepted the password reset request for:",
+          email
+        );
+
+        message.textContent =
+          "Firebase accepted the reset request. Check Inbox, Spam and All Mail. Email delivery is not yet confirmed.";
+
+      } catch (error) {
+        console.error(
+          "PASSWORD RESET ERROR:",
+          error.code,
+          error.message,
+          error
+        );
+
+        message.textContent =
+          "Password reset failed. Error code: " +
+          (error.code || "unknown") +
+          ". Details: " +
+          (error.message || "No additional details.");
+
+      } finally {
+        forgotButton.disabled = false;
+      }
+    };
+}
+
+// =====================================
+// LOGIN / REGISTER MODE
+// =====================================
+
+function updateFormMode() {
+  const heading = document.getElementById("form-heading");
+  const submit = document.getElementById("submit-button");
+  const switchButton = document.getElementById("switch-mode");
+  const forgotButton = document.getElementById("forgot-password");
+  const nameInput = document.getElementById("full-name");
+
+  if (!heading || !submit || !switchButton ||
+      !forgotButton || !nameInput) return;
+
+  if (registerMode) {
+    heading.textContent = "Create your account";
+    submit.textContent = "Create Account";
+    switchButton.textContent = "Already registered? Sign in";
+
+    forgotButton.style.display = "none";
+
+    nameInput.style.display = "block";
+    nameInput.required = true;
+
+  } else {
+    heading.textContent = "Sign in to Cabangile Football";
+    submit.textContent = "Sign In";
+    switchButton.textContent = "New here? Create an account";
+
+    forgotButton.style.display = "block";
+
+    nameInput.style.display = "none";
+    nameInput.required = false;
+  }
+}
+
+// =====================================
+// FRIENDLY ERROR MESSAGES
+// =====================================
+
+function friendlyAuthError(error) {
+  const errors = {
+    "auth/invalid-email":
+      "Enter a valid email address.",
+
+    "auth/email-already-in-use":
+      "This email is already registered.",
+
+    "auth/weak-password":
+      "Use at least 6 characters.",
+
+    "auth/invalid-credential":
+      "Email or password is incorrect.",
+
+    "auth/too-many-requests":
+      "Too many attempts. Try again later.",
+
+    "auth/network-request-failed":
+      "Network problem. Check your internet connection.",
+
+    "permission-denied":
+      "Database permission denied. Check Firestore rules."
+  };
+
+  return errors[error.code] ||
+    error.message ||
+    "Something went wrong. Please try again.";
+}
+
+// =====================================
+// START APPLICATION
+// =====================================
+
+// Show the home page immediately.
+// Navigation does not wait for Firebase.
+
+showPage("home");
+
+// Load Firebase separately.
+initializeFirebase();
+
+console.log("Cabangile Football navigation is ready.");
