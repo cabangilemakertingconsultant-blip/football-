@@ -1,7 +1,7 @@
-
 /* =====================================
    CABANGILE FOOTBALL
    Main application
+   Direct API-Football connection
    ===================================== */
 
 // APP STATE
@@ -14,7 +14,7 @@ let firebaseError = null;
 
 // FIREBASE CONFIGURATION
 const firebaseConfig = {
-  apiKey: "AIzaSyChXiA8otw90zk4rk-pv-4uo2jMaanKXpI",
+  apiKey: "AIzaSyChXiA8otw90zk4rk-pv4-uo2jMaanKXpI",
   authDomain: "football-d6b07.firebaseapp.com",
   projectId: "football-d6b07",
   storageBucket: "football-d6b07.firebasestorage.app",
@@ -43,23 +43,31 @@ const ADMIN_EMAIL = "cabangilemakertingconsultant@gmail.com";
 let adminSelectedUser = null;
 let adminUsers = [];
 
-// FOOTBALL API
-const FOOTBALL_WORKER_URL =
-  "https://bold-limit-9e1a.cabangilemakertingconsultant.workers.dev";
+// API-FOOTBALL DIRECT CONNECTION
+// Replace only the text between the quotation marks with your API-Football key.
+// Do not send your key to anyone. This direct connection makes the key visible
+// in the website's public JavaScript.
+const FOOTBALL_API_KEY = "96384b438028c1429f9850925843f490";
+const FOOTBALL_API_URL = "https://v3.football.api-sports.io/fixtures";
+
+const FOOTBALL_COMPETITIONS = [
+  { id: 39, name: "Premier League" },
+  { id: 140, name: "LaLiga" },
+  { id: 135, name: "Serie A" },
+  { id: 78, name: "Bundesliga" },
+  { id: 61, name: "Ligue 1" },
+  { id: 2, name: "UEFA Champions League" }
+];
 
 let matchesCache = null;
 let matchesCacheTime = 0;
 let matchesLoading = false;
-const MATCHES_CACHE_DURATION = 60000;
+const MATCHES_CACHE_DURATION = 10 * 60 * 1000;
 
 // HELPERS
 function escapeMatchText(value) {
   return String(value ?? "").replace(/[&<>"']/g, character => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[character]);
 }
 
@@ -77,15 +85,63 @@ function formatMatchTime(dateValue) {
   if (!dateValue) return "Time unavailable";
   const date = new Date(dateValue);
   if (Number.isNaN(date.getTime())) return "Time unavailable";
-
   return date.toLocaleString("en-ZA", {
     timeZone: "Africa/Johannesburg",
     day: "2-digit",
     month: "short",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false
   });
+}
+
+function getSouthAfricanDate(offsetDays = 0) {
+  const now = new Date();
+  const saNow = new Date(now.toLocaleString("en-US", { timeZone: "Africa/Johannesburg" }));
+  saNow.setDate(saNow.getDate() + offsetDays);
+  const year = saNow.getFullYear();
+  const month = String(saNow.getMonth() + 1).padStart(2, "0");
+  const day = String(saNow.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function apiErrorsToText(errors) {
+  if (!errors) return "";
+  if (Array.isArray(errors)) return errors.map(String).join(", ");
+  if (typeof errors === "object") {
+    return Object.entries(errors)
+      .map(([key, value]) => `${key}: ${typeof value === "string" ? value : JSON.stringify(value)}`)
+      .join("; ");
+  }
+  return String(errors);
+}
+
+function isFinishedFixture(item) {
+  const code = String(item?.fixture?.status?.short || "").toUpperCase();
+  return ["FT", "AET", "PEN"].includes(code);
+}
+
+function isUpcomingFixture(item) {
+  const code = String(item?.fixture?.status?.short || "").toUpperCase();
+  const kickoff = new Date(item?.fixture?.date || 0).getTime();
+  return kickoff > Date.now() &&
+    !["FT", "AET", "PEN", "LIVE", "1H", "HT", "2H", "ET", "BT", "P", "SUSP", "INT", "PST", "CANC", "ABD", "AWD", "WO"].includes(code);
+}
+
+function isCabangileCompetition(item) {
+  const league = item?.league || {};
+  const knownIds = FOOTBALL_COMPETITIONS.map(item => item.id);
+  if (knownIds.includes(Number(league.id))) return true;
+
+  // Include the South African top division if API-Football identifies it
+  // by its league name/country. Its ID is deliberately not guessed.
+  const country = String(league.country || "").toLowerCase();
+  const name = String(league.name || "").toLowerCase();
+  return country.includes("south africa") &&
+    (name.includes("premier soccer league") ||
+     name.includes("betway premiership") ||
+     name.includes("premier league"));
 }
 
 // PAGE NAVIGATION
@@ -104,53 +160,48 @@ function showPage(page) {
         <p>Your football world starts here.</p>
       </div>
       <div class="football-card">
-        <h3>Today's Matches</h3>
-        <p>Open Matches to see live football scores.</p>
+        <h3>Upcoming Games and Recent Results</h3>
+        <p>See scheduled matches and completed results from the last 3 days.</p>
+        <button type="button" id="home-open-matches">⚽ Open Matches</button>
       </div>
     `,
-
     matches: `
-      <h2>⚽ Live Football Matches</h2>
+      <h2>⚽ Football Matches</h2>
       <div class="football-card">
-        <p>Live scores from football competitions around the world.</p>
+        <p>Upcoming games and completed results from the last 3 days. Live scores are not shown.</p>
         <button type="button" id="refresh-matches">🔄 Refresh Matches</button>
-        <p id="matches-message" role="status">Loading live matches...</p>
+        <p id="matches-message" role="status">Loading fixtures...</p>
       </div>
-      <div id="matches-list"></div>
+      <h3>📅 Upcoming Games</h3>
+      <div id="upcoming-matches-list"></div>
+      <h3>🏁 Previous Results — Last 3 Days</h3>
+      <div id="previous-results-list"></div>
     `,
-
     predictions: `
       <h2>📊 Football Predictions</h2>
       <div class="football-card">
         <h3>Make Your Prediction</h3>
-        <p>Predict your favourite teams.</p>
-        <p>Virtual-credit predictions are not enabled yet.</p>
+        <p>Choose Home Win, Draw or Away Win for an upcoming game.</p>
+        <p>Virtual-credit predictions are the next feature to implement.</p>
       </div>
     `,
-
     wallet: `
       <h2>💰 My Wallet</h2>
       <div class="football-card">
         <h3>Virtual Credit Balance</h3>
         <p id="wallet-balance">Sign in to view your balance.</p>
         <p>These are virtual credits, not cash and not withdrawable.</p>
-        <p>Withdrawal requests are not enabled for virtual credits.</p>
       </div>
     `,
-
     profile: `
       <h2>👤 My Account</h2>
-      <div class="football-card" id="account-area">
-        Checking account...
-      </div>
+      <div class="football-card" id="account-area">Checking account...</div>
     `,
-
     admin: `
       <h2>🛡️ Admin Wallet Management</h2>
       <div class="football-card">
         <p>Manage users' virtual credits. These credits are not cash.</p>
-        <input type="search" id="admin-user-search"
-          placeholder="Search users by name or email">
+        <input type="search" id="admin-user-search" placeholder="Search users by name or email">
         <div id="admin-user-list">Loading users...</div>
       </div>
       <div id="admin-selected-user"></div>
@@ -163,93 +214,123 @@ function showPage(page) {
   window.scrollTo(0, 0);
 
   if (currentPage === "profile") renderAccount();
-  if (currentPage === "matches") loadLiveMatches();
+  if (currentPage === "matches") loadFootballMatches();
   if (currentPage === "wallet") renderWallet();
   if (currentPage === "admin") renderAdmin();
 }
-
 window.showPage = showPage;
 
 document.querySelectorAll("[data-page]").forEach(button => {
   button.addEventListener("click", () => showPage(button.dataset.page));
 });
 
-// LIVE MATCHES
-function renderLiveMatches(fixtures) {
-  const list = document.getElementById("matches-list");
-  const message = document.getElementById("matches-message");
-  if (!list || !message) return;
+document.addEventListener("click", event => {
+  if (event.target.closest("#refresh-matches")) loadFootballMatches(true);
+  if (event.target.closest("#home-open-matches")) showPage("matches");
+});
 
-  if (!Array.isArray(fixtures) || fixtures.length === 0) {
-    list.innerHTML = "";
-    message.textContent = "There are no live matches right now. Try again later.";
+// API-FOOTBALL FIXTURES
+function renderFixtureCard(item, isResult = false) {
+  const fixture = item.fixture || {};
+  const league = item.league || {};
+  const teams = item.teams || {};
+  const goals = item.goals || {};
+  const home = teams.home || {};
+  const away = teams.away || {};
+  const leagueLogo = safeFootballImage(league.logo);
+  const homeLogo = safeFootballImage(home.logo);
+  const awayLogo = safeFootballImage(away.logo);
+
+  const score = isResult
+    ? `${goals.home ?? "-"} - ${goals.away ?? "-"}`
+    : "VS";
+
+  const status = isResult
+    ? (fixture.status?.long || "Finished")
+    : "Kick-off";
+
+  return `
+    <div class="football-card match-card">
+      <div class="match-league">
+        ${leagueLogo ? `<img src="${leagueLogo}" alt="" width="22" height="22">` : ""}
+        <strong>${escapeMatchText(league.name || "Football")}</strong>
+      </div>
+      <div class="match-teams">
+        <div class="match-team">
+          ${homeLogo ? `<img src="${homeLogo}" alt="" width="32" height="32">` : ""}
+          <span>${escapeMatchText(home.name || "Home team")}</span>
+        </div>
+        <strong class="match-score">${escapeMatchText(score)}</strong>
+        <div class="match-team">
+          ${awayLogo ? `<img src="${awayLogo}" alt="" width="32" height="32">` : ""}
+          <span>${escapeMatchText(away.name || "Away team")}</span>
+        </div>
+      </div>
+      <p class="match-status">${escapeMatchText(status)}</p>
+      <p class="match-time">${escapeMatchText(formatMatchTime(fixture.date))} · South African time</p>
+    </div>
+  `;
+}
+
+function renderFootballMatches(fixtures) {
+  const upcomingList = document.getElementById("upcoming-matches-list");
+  const resultsList = document.getElementById("previous-results-list");
+  const message = document.getElementById("matches-message");
+  if (!upcomingList || !resultsList || !message) return;
+
+  const selected = fixtures.filter(isCabangileCompetition);
+  const upcoming = selected.filter(isUpcomingFixture)
+    .sort((a, b) => new Date(a.fixture.date) - new Date(b.fixture.date));
+  const results = selected.filter(isFinishedFixture)
+    .filter(item => Date.now() - new Date(item.fixture.date).getTime() <= 72 * 60 * 60 * 1000)
+    .sort((a, b) => new Date(b.fixture.date) - new Date(a.fixture.date));
+
+  upcomingList.innerHTML = upcoming.length
+    ? upcoming.map(item => renderFixtureCard(item, false)).join("")
+    : `<div class="football-card"><p>No upcoming games found for the selected competitions.</p></div>`;
+
+  resultsList.innerHTML = results.length
+    ? results.map(item => renderFixtureCard(item, true)).join("")
+    : `<div class="football-card"><p>No completed results from the selected competitions in the last 3 days.</p></div>`;
+
+  message.textContent =
+    `${upcoming.length} upcoming game(s) · ${results.length} completed result(s) in the last 3 days.`;
+}
+
+async function loadFootballMatches(forceRefresh = false) {
+  const upcomingList = document.getElementById("upcoming-matches-list");
+  const resultsList = document.getElementById("previous-results-list");
+  const message = document.getElementById("matches-message");
+  const refreshButton = document.getElementById("refresh-matches");
+  if (!upcomingList || !resultsList || !message || matchesLoading) return;
+
+  if (!FOOTBALL_API_KEY || FOOTBALL_API_KEY === "PASTE_YOUR_API_FOOTBALL_KEY_HERE") {
+    message.textContent = "Add your API-Football key near the top of app.js first.";
     return;
   }
 
-  message.textContent = fixtures.length + " live match(es) found.";
-
-  list.innerHTML = fixtures.map(item => {
-    const fixture = item.fixture || {};
-    const league = item.league || {};
-    const teams = item.teams || {};
-    const goals = item.goals || {};
-    const status = fixture.status || {};
-    const home = teams.home || {};
-    const away = teams.away || {};
-
-    const leagueLogo = safeFootballImage(league.logo);
-    const homeLogo = safeFootballImage(home.logo);
-    const awayLogo = safeFootballImage(away.logo);
-    const score = (goals.home ?? "-") + " - " + (goals.away ?? "-");
-
-    const matchStatus = status.elapsed != null
-      ? (status.long || status.short || "LIVE") + " · " + status.elapsed + "'"
-      : (status.long || status.short || "LIVE");
-
-    return `
-      <div class="football-card live-match-card">
-        <div class="match-league">
-          ${leagueLogo ? `<img src="${leagueLogo}" alt="" width="22" height="22">` : ""}
-          <strong>${escapeMatchText(league.name || "Football")}</strong>
-        </div>
-        <div class="match-teams">
-          <div class="match-team">
-            ${homeLogo ? `<img src="${homeLogo}" alt="" width="32" height="32">` : ""}
-            <span>${escapeMatchText(home.name || "Home team")}</span>
-          </div>
-          <strong class="match-score">${escapeMatchText(score)}</strong>
-          <div class="match-team">
-            ${awayLogo ? `<img src="${awayLogo}" alt="" width="32" height="32">` : ""}
-            <span>${escapeMatchText(away.name || "Away team")}</span>
-          </div>
-        </div>
-        <p class="match-status">${escapeMatchText(matchStatus)}</p>
-        <p class="match-time">${escapeMatchText(formatMatchTime(fixture.date))} · South African time</p>
-      </div>
-    `;
-  }).join("");
-}
-
-async function loadLiveMatches(forceRefresh = false) {
-  const list = document.getElementById("matches-list");
-  const message = document.getElementById("matches-message");
-  const refreshButton = document.getElementById("refresh-matches");
-  if (!list || !message || matchesLoading) return;
-
   if (!forceRefresh && matchesCache &&
       Date.now() - matchesCacheTime < MATCHES_CACHE_DURATION) {
-    renderLiveMatches(matchesCache);
+    renderFootballMatches(matchesCache);
     return;
   }
 
   matchesLoading = true;
   if (refreshButton) refreshButton.disabled = true;
-  message.textContent = "Loading live football scores...";
-  list.innerHTML = "";
+  message.textContent = "Loading upcoming games and recent results...";
+  upcomingList.innerHTML = "";
+  resultsList.innerHTML = "";
 
   try {
-    const response = await fetch(FOOTBALL_WORKER_URL, {
+    // One date-range request supplies both future fixtures and the last 72 hours.
+    // The API key is sent directly from this browser to API-Football.
+    const from = getSouthAfricanDate(-3);
+    const to = getSouthAfricanDate(14);
+    const url = `${FOOTBALL_API_URL}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&timezone=Africa%2FJohannesburg`;
+
+    const response = await fetch(url, {
       method: "GET",
+      headers: { "x-apisports-key": FOOTBALL_API_KEY },
       cache: "no-store"
     });
 
@@ -257,27 +338,31 @@ async function loadLiveMatches(forceRefresh = false) {
     try {
       data = await response.json();
     } catch {
-      throw new Error("The football service returned an unreadable response.");
+      throw new Error("API-Football returned an unreadable response.");
     }
 
-    if (!response.ok || data.errors?.length) {
-      const apiError = Array.isArray(data.errors)
-        ? data.errors.map(error =>
-            typeof error === "string" ? error : JSON.stringify(error)
-          ).join(", ")
-        : "";
-      throw new Error(apiError || data.error ||
-        "Football service returned an error (HTTP " + response.status + ").");
+    const apiError = apiErrorsToText(data.errors);
+    if (!response.ok || apiError) {
+      throw new Error(apiError || `API-Football request failed (HTTP ${response.status}).`);
     }
 
-    matchesCache = Array.isArray(data.response) ? data.response : [];
+    if (!Array.isArray(data.response)) {
+      throw new Error("API-Football did not return a fixtures list.");
+    }
+
+    matchesCache = data.response;
     matchesCacheTime = Date.now();
-    renderLiveMatches(matchesCache);
+    renderFootballMatches(matchesCache);
   } catch (error) {
-    console.error("Live matches error:", error);
-    message.textContent =
-      "Could not load live matches. Please check your connection and try again.";
-    list.innerHTML = `<div class="football-card"><p>${escapeMatchText(error.message)}</p></div>`;
+    console.error("Football fixtures error:", error);
+    message.textContent = "Could not load football fixtures.";
+    upcomingList.innerHTML = `
+      <div class="football-card">
+        <p>${escapeMatchText(error.message)}</p>
+        <p>If the message mentions CORS or a network request was blocked, direct browser access is not allowed by the API service. A secure server connection would then be required.</p>
+      </div>
+    `;
+    resultsList.innerHTML = "";
   } finally {
     matchesLoading = false;
     const currentButton = document.getElementById("refresh-matches");
@@ -285,16 +370,9 @@ async function loadLiveMatches(forceRefresh = false) {
   }
 }
 
-document.addEventListener("click", event => {
-  const button = event.target.closest("#refresh-matches");
-  if (button) loadLiveMatches(true);
-});
-
 // FIREBASE INITIALIZATION
 async function initializeFirebase() {
   try {
-    console.log("Loading Firebase...");
-
     const [appSDK, authSDK, firestoreSDK] = await Promise.all([
       import("https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js"),
       import("https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js"),
@@ -321,7 +399,6 @@ async function initializeFirebase() {
     runTransaction = firestoreSDK.runTransaction;
 
     firebaseReady = true;
-    console.log("Firebase connected successfully.");
 
     onAuthStateChanged(auth, async () => {
       if (currentPage === "profile") await renderAccount();
@@ -332,7 +409,6 @@ async function initializeFirebase() {
     if (currentPage === "profile") renderAccount();
     if (currentPage === "wallet") renderWallet();
     if (currentPage === "admin") renderAdmin();
-
   } catch (error) {
     firebaseError = error;
     console.error("Firebase loading error:", error);
@@ -360,7 +436,6 @@ async function ensureUserProfile(user) {
     await setDoc(userRef, { virtualBalance: 0 }, { merge: true });
   }
 }
-
 // ACCOUNT DISPLAY
 async function renderAccount() {
   const area = document.getElementById("account-area");
@@ -374,13 +449,11 @@ async function renderAccount() {
       : `<p>Connecting to your account...</p>`;
 
     const retry = document.getElementById("retry-firebase");
-    if (retry) {
-      retry.onclick = () => {
-        firebaseError = null;
-        area.innerHTML = "Connecting to your account...";
-        initializeFirebase();
-      };
-    }
+    if (retry) retry.onclick = () => {
+      firebaseError = null;
+      area.innerHTML = "Connecting to your account...";
+      initializeFirebase();
+    };
     return;
   }
 
@@ -402,9 +475,7 @@ async function renderAccount() {
       <button type="button" id="logout-button">Sign Out</button>
     `;
 
-    document.getElementById("account-email").textContent =
-      "Email: " + (user.email || "");
-
+    document.getElementById("account-email").textContent = "Email: " + (user.email || "");
     const nameInput = document.getElementById("profile-name");
     const phoneInput = document.getElementById("profile-phone");
     const message = document.getElementById("profile-message");
@@ -413,7 +484,6 @@ async function renderAccount() {
       await ensureUserProfile(user);
       const profile = await getDoc(doc(db, "users", user.uid));
       if (!document.getElementById("profile-form")) return;
-
       if (profile.exists()) {
         const data = profile.data();
         nameInput.value = data.displayName || user.displayName || "";
@@ -431,15 +501,12 @@ async function renderAccount() {
         const fullName = nameInput.value.trim();
         const phoneNumber = phoneInput.value.trim();
         const saveButton = document.getElementById("save-profile");
-
         if (!fullName) {
           message.textContent = "Enter your full name.";
           return;
         }
-
         saveButton.disabled = true;
         message.textContent = "Saving profile...";
-
         try {
           await updateProfile(user, { displayName: fullName });
           await setDoc(doc(db, "users", user.uid), {
@@ -461,13 +528,8 @@ async function renderAccount() {
 
     const adminButton = document.getElementById("open-admin-wallet");
     if (adminButton) adminButton.onclick = () => showPage("admin");
-
     document.getElementById("logout-button").onclick = async () => {
-      try {
-        await signOut(auth);
-      } catch (error) {
-        alert(error.message);
-      }
+      try { await signOut(auth); } catch (error) { alert(error.message); }
     };
     return;
   }
@@ -486,7 +548,6 @@ async function renderAccount() {
   `;
 
   updateFormMode();
-
   document.getElementById("switch-mode").onclick = () => {
     registerMode = !registerMode;
     updateFormMode();
@@ -494,7 +555,6 @@ async function renderAccount() {
 
   document.getElementById("account-form").onsubmit = async event => {
     event.preventDefault();
-
     const fullName = document.getElementById("full-name").value.trim();
     const email = document.getElementById("email").value.trim();
     const password = document.getElementById("password").value;
@@ -505,10 +565,8 @@ async function renderAccount() {
       message.textContent = "Enter your full name.";
       return;
     }
-
     submit.disabled = true;
     message.textContent = "Please wait...";
-
     try {
       if (registerMode) {
         const credential = await createUserWithEmailAndPassword(auth, email, password);
@@ -539,23 +597,18 @@ async function renderAccount() {
     const email = document.getElementById("email").value.trim();
     const message = document.getElementById("auth-message");
     const button = document.getElementById("forgot-password");
-
     if (!email) {
       message.textContent = "Enter your email address first.";
       return;
     }
-
     button.disabled = true;
     message.textContent = "Sending password reset request...";
-
     try {
       await sendPasswordResetEmail(auth, email);
-      message.textContent =
-        "Firebase accepted the reset request. Check Inbox, Spam and All Mail. Email delivery is not yet confirmed.";
+      message.textContent = "Firebase accepted the reset request. Check Inbox, Spam and All Mail. Email delivery is not yet confirmed.";
     } catch (error) {
       console.error("PASSWORD RESET ERROR:", error);
-      message.textContent = "Password reset failed. " +
-        (error.code || "unknown") + ": " + (error.message || "");
+      message.textContent = "Password reset failed. " + (error.code || "unknown") + ": " + (error.message || "");
     } finally {
       button.disabled = false;
     }
@@ -569,7 +622,6 @@ function updateFormMode() {
   const switchButton = document.getElementById("switch-mode");
   const forgotButton = document.getElementById("forgot-password");
   const nameInput = document.getElementById("full-name");
-
   if (!heading || !submit || !switchButton || !forgotButton || !nameInput) return;
 
   if (registerMode) {
@@ -607,21 +659,17 @@ function friendlyAuthError(error) {
 async function renderWallet() {
   const balanceArea = document.getElementById("wallet-balance");
   if (!balanceArea) return;
-
   if (!firebaseReady || !auth.currentUser) {
     balanceArea.textContent = "Sign in to view your virtual credit balance.";
     return;
   }
-
   try {
     await ensureUserProfile(auth.currentUser);
     const snapshot = await getDoc(doc(db, "users", auth.currentUser.uid));
-
     if (!snapshot.exists()) {
       balanceArea.textContent = "Wallet profile not found.";
       return;
     }
-
     const balance = Number(snapshot.data().virtualBalance || 0);
     balanceArea.textContent = balance.toFixed(2) + " virtual credits";
   } catch (error) {
@@ -631,26 +679,15 @@ async function renderWallet() {
 }
 
 // ADMIN VIRTUAL WALLET MANAGEMENT
-
 async function renderAdmin() {
   const content = document.getElementById("page-content");
   if (!content) return;
-
   if (!firebaseReady || !auth?.currentUser) {
-    content.innerHTML = `
-      <h2>Admin Wallet</h2>
-      <p>Please sign in first.</p>
-      <button type="button" onclick="showPage('profile')">My Account</button>
-    `;
+    content.innerHTML = `<h2>Admin Wallet</h2><p>Please sign in first.</p><button type="button" onclick="showPage('profile')">My Account</button>`;
     return;
   }
-
   if (!isCabangileAdmin()) {
-    content.innerHTML = `
-      <h2>Access denied</h2>
-      <p>Administrator permission is required.</p>
-      <button type="button" onclick="showPage('home')">Go Home</button>
-    `;
+    content.innerHTML = `<h2>Access denied</h2><p>Administrator permission is required.</p><button type="button" onclick="showPage('home')">Go Home</button>`;
     return;
   }
 
@@ -658,8 +695,7 @@ async function renderAdmin() {
     <h2>🛡️ Admin Wallet Management</h2>
     <div class="football-card">
       <p><strong>Virtual credits only — not cash.</strong></p>
-      <input type="search" id="admin-user-search"
-        placeholder="Search users by name or email">
+      <input type="search" id="admin-user-search" placeholder="Search users by name or email">
       <div id="admin-user-list">Loading registered users...</div>
     </div>
     <div id="admin-selected-user"></div>
@@ -667,51 +703,38 @@ async function renderAdmin() {
   `;
 
   const userList = document.getElementById("admin-user-list");
-
   try {
     const snapshot = await getDocs(collection(db, "users"));
-    adminUsers = snapshot.docs.map(item => ({
-      uid: item.id,
-      ...item.data()
-    }));
+    adminUsers = snapshot.docs.map(item => ({ uid: item.id, ...item.data() }));
     renderAdminUserList(adminUsers);
   } catch (error) {
     console.error("Admin user loading error:", error);
-    userList.textContent =
-      "Could not load users. Firestore Security Rules may need admin permissions. " +
-      error.message;
+    userList.textContent = "Could not load users. Check Firestore Security Rules. " + error.message;
   }
 
   const search = document.getElementById("admin-user-search");
-  if (search) {
-    search.addEventListener("input", () => {
-      const term = search.value.toLowerCase().trim();
-      const filtered = adminUsers.filter(user =>
-        String(user.displayName || "").toLowerCase().includes(term) ||
-        String(user.email || "").toLowerCase().includes(term)
-      );
-      renderAdminUserList(filtered);
-    });
-  }
+  if (search) search.addEventListener("input", () => {
+    const term = search.value.toLowerCase().trim();
+    renderAdminUserList(adminUsers.filter(user =>
+      String(user.displayName || "").toLowerCase().includes(term) ||
+      String(user.email || "").toLowerCase().includes(term)
+    ));
+  });
 }
 
 function renderAdminUserList(users) {
   const list = document.getElementById("admin-user-list");
   if (!list) return;
-
   if (!users.length) {
     list.textContent = "No users found.";
     return;
   }
-
   list.innerHTML = users.map(user => `
     <div class="football-card">
       <strong>${escapeMatchText(user.displayName || "Football Fan")}</strong>
       <p>${escapeMatchText(user.email || "")}</p>
       <p>Balance: ${Number(user.virtualBalance || 0).toFixed(2)} virtual credits</p>
-      <button type="button" data-admin-user="${escapeMatchText(user.uid)}">
-        Manage Balance
-      </button>
+      <button type="button" data-admin-user="${escapeMatchText(user.uid)}">Manage Balance</button>
     </div>
   `).join("");
 
@@ -729,33 +752,24 @@ function renderAdminUserList(users) {
 function renderAdminSelectedUser() {
   const area = document.getElementById("admin-selected-user");
   if (!area || !adminSelectedUser) return;
-
   const user = adminSelectedUser;
   area.innerHTML = `
     <div class="football-card">
       <h3>Manage Virtual Balance</h3>
       <p><strong>${escapeMatchText(user.displayName || "Football Fan")}</strong></p>
       <p>${escapeMatchText(user.email || "")}</p>
-      <p>Current balance:
-        <strong>${Number(user.virtualBalance || 0).toFixed(2)} credits</strong>
-      </p>
+      <p>Current balance: <strong>${Number(user.virtualBalance || 0).toFixed(2)} credits</strong></p>
       <label for="admin-amount">Amount of credits</label>
-      <input type="number" id="admin-amount" min="0.01"
-        max="1000000" step="0.01" placeholder="Enter amount">
+      <input type="number" id="admin-amount" min="0.01" max="1000000" step="0.01" placeholder="Enter amount">
       <label for="admin-reason">Reason for adjustment</label>
-      <input type="text" id="admin-reason" maxlength="200"
-        placeholder="Enter reason">
+      <input type="text" id="admin-reason" maxlength="200" placeholder="Enter reason">
       <button type="button" id="admin-increase">➕ Increase Balance</button>
       <button type="button" id="admin-decrease">➖ Decrease Balance</button>
       <p id="admin-adjustment-message" role="status"></p>
     </div>
   `;
-
-  document.getElementById("admin-increase").onclick =
-    () => adjustVirtualBalance("increase");
-  document.getElementById("admin-decrease").onclick =
-    () => adjustVirtualBalance("decrease");
-
+  document.getElementById("admin-increase").onclick = () => adjustVirtualBalance("increase");
+  document.getElementById("admin-decrease").onclick = () => adjustVirtualBalance("decrease");
   loadAdminWalletHistory(user.uid);
 }
 
@@ -765,7 +779,6 @@ async function adjustVirtualBalance(action) {
     return;
   }
   if (!adminSelectedUser) return;
-
   const amountInput = document.getElementById("admin-amount");
   const reasonInput = document.getElementById("admin-reason");
   const message = document.getElementById("admin-adjustment-message");
@@ -784,29 +797,16 @@ async function adjustVirtualBalance(action) {
   const selectedUser = adminSelectedUser;
   const admin = auth.currentUser;
   message.textContent = "Saving adjustment...";
-
   try {
     const userRef = doc(db, "users", selectedUser.uid);
     const historyRef = doc(collection(db, "walletTransactions"));
-
     await runTransaction(db, async transaction => {
       const userSnapshot = await transaction.get(userRef);
       if (!userSnapshot.exists()) throw new Error("User account was not found.");
-
       const currentBalance = Number(userSnapshot.data().virtualBalance || 0);
-      const newBalance = action === "increase"
-        ? currentBalance + amount
-        : currentBalance - amount;
-
-      if (newBalance < 0) {
-        throw new Error("This user does not have enough virtual credits.");
-      }
-
-      transaction.update(userRef, {
-        virtualBalance: newBalance,
-        walletUpdatedAt: serverTimestamp()
-      });
-
+      const newBalance = action === "increase" ? currentBalance + amount : currentBalance - amount;
+      if (newBalance < 0) throw new Error("This user does not have enough virtual credits.");
+      transaction.update(userRef, { virtualBalance: newBalance, walletUpdatedAt: serverTimestamp() });
       transaction.set(historyRef, {
         userId: selectedUser.uid,
         userEmail: selectedUser.email || "",
@@ -822,15 +822,10 @@ async function adjustVirtualBalance(action) {
     });
 
     adminSelectedUser.virtualBalance =
-      Number(adminSelectedUser.virtualBalance || 0) +
-      (action === "increase" ? amount : -amount);
-
+      Number(adminSelectedUser.virtualBalance || 0) + (action === "increase" ? amount : -amount);
     const cachedUser = adminUsers.find(user => user.uid === selectedUser.uid);
     if (cachedUser) cachedUser.virtualBalance = adminSelectedUser.virtualBalance;
-
-    message.textContent = "Balance successfully " +
-      (action === "increase" ? "increased." : "decreased.");
-
+    message.textContent = "Balance successfully " + (action === "increase" ? "increased." : "decreased.");
     renderAdminSelectedUser();
 
     const search = document.getElementById("admin-user-search");
@@ -841,8 +836,7 @@ async function adjustVirtualBalance(action) {
     ));
   } catch (error) {
     console.error("Wallet adjustment error:", error);
-    message.textContent =
-      "Adjustment failed: " + error.message +
+    message.textContent = "Adjustment failed: " + error.message +
       ". Firestore Security Rules may not yet allow this admin action.";
   }
 }
@@ -850,34 +844,18 @@ async function adjustVirtualBalance(action) {
 async function loadAdminWalletHistory(userId) {
   const area = document.getElementById("admin-history");
   if (!area) return;
-
-  area.innerHTML = `
-    <div class="football-card">
-      <h3>Wallet Adjustment History</h3>
-      <p>Loading history...</p>
-    </div>
-  `;
-
+  area.innerHTML = `<div class="football-card"><h3>Wallet Adjustment History</h3><p>Loading history...</p></div>`;
   try {
     const snapshot = await getDocs(collection(db, "walletTransactions"));
-    const records = snapshot.docs
-      .map(item => item.data())
+    const records = snapshot.docs.map(item => item.data())
       .filter(item => item.userId === userId)
-      .sort((a, b) =>
-        (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)
-      )
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0))
       .slice(0, 30);
 
     if (!records.length) {
-      area.innerHTML = `
-        <div class="football-card">
-          <h3>Wallet Adjustment History</h3>
-          <p>No manual adjustments recorded yet.</p>
-        </div>
-      `;
+      area.innerHTML = `<div class="football-card"><h3>Wallet Adjustment History</h3><p>No manual adjustments recorded yet.</p></div>`;
       return;
     }
-
     area.innerHTML = `
       <div class="football-card">
         <h3>Wallet Adjustment History</h3>
@@ -898,16 +876,11 @@ async function loadAdminWalletHistory(userId) {
     `;
   } catch (error) {
     console.error("Wallet history error:", error);
-    area.innerHTML = `
-      <div class="football-card">
-        <p>Could not load wallet history: ${escapeMatchText(error.message)}</p>
-      </div>
-    `;
+    area.innerHTML = `<div class="football-card"><p>Could not load wallet history: ${escapeMatchText(error.message)}</p></div>`;
   }
 }
 
 // START APPLICATION
 showPage("home");
 initializeFirebase();
-
-console.log("Cabangile Football navigation is ready.");
+console.log("Cabangile Football is ready.");
