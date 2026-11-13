@@ -1,8 +1,8 @@
 
 /* =====================================
    CABANGILE FOOTBALL
-   Complete application
-   PART 1 OF 4
+   COMPLETE APPLICATION
+   NEW PART 1 OF 4
    ===================================== */
 
 // APP STATE
@@ -18,7 +18,7 @@ let matchesCacheTime = 0;
 let matchesLoading = false;
 
 const MATCHES_CACHE_DURATION = 10 * 60 * 1000;
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyChXiA8otw90zk4rk-pv-4uo2jMaanKXpI",
   authDomain: "football-d6b07.firebaseapp.com",
@@ -29,6 +29,7 @@ const firebaseConfig = {
   appId: "1:101049949537:web:8bdff34999e81d4129f920",
   measurementId: "G-6M9Q9GJ04X"
 };
+// FIREBASE FUNCTIONS
 let createUserWithEmailAndPassword;
 let signInWithEmailAndPassword;
 let sendPasswordResetEmail;
@@ -49,8 +50,6 @@ let adminSelectedUser = null;
 let adminUsers = [];
 
 // API-FOOTBALL DIRECT CONNECTION
-// Keep your API key directly here.
-// Replace the placeholder with your own key.
 const FOOTBALL_API_KEY = "96384b438028c1429f9850925843f490";
 
 const FOOTBALL_API_URL =
@@ -109,6 +108,7 @@ function formatMatchTime(dateValue) {
   });
 }
 
+// GET DATE IN SOUTH AFRICA
 function getSouthAfricanDate(offsetDays = 0) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Africa/Johannesburg",
@@ -118,20 +118,22 @@ function getSouthAfricanDate(offsetDays = 0) {
   }).formatToParts(new Date());
 
   const values = {};
+
   parts.forEach(part => {
     values[part.type] = part.value;
   });
 
-  const date = new Date(
-    `${values.year}-${values.month}-${values.day}T12:00:00`
-  );
-
-  date.setDate(date.getDate() + offsetDays);
+  // Use UTC arithmetic to avoid device timezone differences.
+  const date = new Date(Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day) + offsetDays
+  ));
 
   return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0")
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0")
   ].join("-");
 }
 
@@ -144,11 +146,13 @@ function apiErrorsToText(errors) {
 
   if (typeof errors === "object") {
     return Object.entries(errors)
-      .map(([key, value]) =>
-        `${key}: ${typeof value === "string"
+      .map(([key, value]) => {
+        const message = typeof value === "string"
           ? value
-          : JSON.stringify(value)}`
-      )
+          : JSON.stringify(value);
+
+        return `${key}: ${message}`;
+      })
       .join("; ");
   }
 
@@ -322,6 +326,7 @@ function showPage(page) {
 
 window.showPage = showPage;
 
+// NAVIGATION BUTTONS
 document.querySelectorAll("[data-page]").forEach(button => {
   button.addEventListener("click", () => {
     showPage(button.dataset.page);
@@ -425,10 +430,12 @@ function renderFootballMatches(fixtures) {
 
   const results = selected
     .filter(isFinishedFixture)
-    .filter(item =>
-      Date.now() - new Date(item.fixture.date).getTime()
-      <= 72 * 60 * 60 * 1000
-    )
+    .filter(item => {
+      const matchTime = new Date(item.fixture.date).getTime();
+      const age = Date.now() - matchTime;
+
+      return age >= 0 && age <= 72 * 60 * 60 * 1000;
+    })
     .sort((a, b) =>
       new Date(b.fixture.date) - new Date(a.fixture.date)
     );
@@ -465,16 +472,14 @@ async function loadFootballMatches(forceRefresh = false) {
       matchesLoading) return;
 
   if (!FOOTBALL_API_KEY ||
-      FOOTBALL_API_KEY ===
-      "PASTE_YOUR_API_FOOTBALL_KEY_HERE") {
+      FOOTBALL_API_KEY === "PASTE_YOUR_API_FOOTBALL_KEY_HERE") {
     message.textContent =
       "Add your API-Football key in app.js first.";
     return;
   }
 
   if (!forceRefresh && matchesCache &&
-      Date.now() - matchesCacheTime <
-      MATCHES_CACHE_DURATION) {
+      Date.now() - matchesCacheTime < MATCHES_CACHE_DURATION) {
     renderFootballMatches(matchesCache);
     return;
   }
@@ -493,40 +498,54 @@ async function loadFootballMatches(forceRefresh = false) {
   resultsList.innerHTML = "";
 
   try {
-    const from = getSouthAfricanDate(-3);
-    const to = getSouthAfricanDate(14);
+    const fromDate = getSouthAfricanDate(-3);
+    const toDate = getSouthAfricanDate(14);
+    const timezone = "Africa/Johannesburg";
 
-    const params = new URLSearchParams({
-      from,
-      to,
-      timezone: "Africa/Johannesburg"
+    const requestUrl = new URL(FOOTBALL_API_URL);
+
+    requestUrl.searchParams.set("from", fromDate);
+    requestUrl.searchParams.set("to", toDate);
+    requestUrl.searchParams.set("timezone", timezone);
+
+    console.log("Cabangile fixture request:", requestUrl.toString());
+
+    const response = await fetch(requestUrl.toString(), {
+      method: "GET",
+      headers: {
+        "x-apisports-key": FOOTBALL_API_KEY
+      },
+      cache: "no-store"
     });
 
-    const response = await fetch(
-      `${FOOTBALL_API_URL}?${params.toString()}`,
-      {
-        method: "GET",
-        headers: {
-          "x-apisports-key": FOOTBALL_API_KEY
-        },
-        cache: "no-store"
-      }
-    );
+    const responseText = await response.text();
 
-    const data = await response.json();
+    let data;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      throw new Error(
+        "The API returned an unreadable response. Check the API service."
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `API request failed (HTTP ${response.status}): ` +
+        apiErrorsToText(data.errors || data.message || response.statusText)
+      );
+    }
 
     const apiError = apiErrorsToText(data.errors);
 
-    if (!response.ok || apiError) {
-      throw new Error(
-        apiError ||
-        `API-Football error: HTTP ${response.status}`
-      );
+    if (apiError) {
+      throw new Error(apiError);
     }
 
     if (!Array.isArray(data.response)) {
       throw new Error(
-        "API-Football did not return a fixtures list."
+        "The API did not return a valid fixtures list."
       );
     }
 
@@ -536,17 +555,16 @@ async function loadFootballMatches(forceRefresh = false) {
     renderFootballMatches(matchesCache);
 
   } catch (error) {
-    console.error("Football fixtures error:", error);
+    console.error("Cabangile football fixtures error:", error);
 
-    message.textContent =
-      "Could not load football fixtures.";
+    message.textContent = "Could not load football fixtures.";
 
     upcomingList.innerHTML = `
       <div class="football-card">
-        <p>${escapeMatchText(error.message)}</p>
+        <p>${escapeMatchText(error.message || "Unknown error")}</p>
         <p>
-          If this is a CORS error, direct browser access
-          is being blocked by the API service.
+          If the browser reports a CORS error, direct browser
+          access is being blocked by the API service.
         </p>
       </div>
     `;
