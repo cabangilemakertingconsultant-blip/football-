@@ -1662,3 +1662,5 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initializeFirebase();
   console.log("Cabangile Football started.");
 });
+
+
