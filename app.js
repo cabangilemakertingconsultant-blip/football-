@@ -50,7 +50,7 @@ let adminSelectedUser = null;
 let adminUsers = [];
 
 // API-FOOTBALL DIRECT CONNECTION
-const FOOTBALL_API_KEY = "96384b438028c1429f9850925843f490";
+const FOOTBALL_API_KEY = "9067199e08658c8af7e75c7b8c43ae95";
 
 const FOOTBALL_API_URL =
   "https://v3.football.api-sports.io/fixtures";
